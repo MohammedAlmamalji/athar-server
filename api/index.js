@@ -5,11 +5,11 @@ const Minio = require('minio');
 
 const app = express();
 
-// تفعيل الـ CORS حتى تطبيق الفلاتر يكدر يتصل بالسيرفر
-app.use(cors());
+// إجبار السيرفر على قبول جميع الطلبات من أي مكان
+app.use(cors({ origin: '*' }));
 app.use(express.json());
 
-// إعدادات الـ Minio مالتك
+// إعدادات Minio
 const minioClient = new Minio.Client({
     endPoint: 'fra1.digitaloceanspaces.com',
     port: 443,
@@ -18,37 +18,42 @@ const minioClient = new Minio.Client({
     secretKey: 'QQYAbxncIiO71vdreKqgTAraEjmIxsFok+r0eq3L5lo'
 });
 
-// المسار (Route) الخاص بالتحميل
+// 🟢 مسار فحص السيرفر (Test Endpoint)
+app.get('/api/test', (req, res) => {
+    res.status(200).json({ success: true, message: "السيرفر شغال والـ CORS مفتوح بنجاح! 🚀" });
+});
+
+// 🔴 مسار التحميل
 app.post('/api/download', async (req, res) => {
     try {
         const { url } = req.body;
         if (!url) return res.status(400).json({ error: "الرجاء إرسال رابط يوتيوب" });
 
-        // جلب معلومات الفيديو
+        console.log("1. جاري جلب معلومات الفيديو...");
         const info = await ytdl.getInfo(url);
         const title = info.videoDetails.title;
 
-        // سحب الصوت فقط بأعلى جودة
+        console.log(`2. اسم الأغنية: ${title} - جاري سحب الصوت...`);
         const stream = ytdl(url, { filter: 'audioonly', quality: 'highestaudio' });
         
-        // توليد اسم ملف فريد
         const randomStr = Math.random().toString(36).substring(2, 15);
         const fileName = `songs/${Date.now()}_${randomStr}.mp3`;
 
-        // الرفع المباشر إلى DigitalOcean
+        console.log("3. جاري الرفع إلى مساحة Minio...");
         await minioClient.putObject('athar-assets', fileName, stream, {
             'x-amz-acl': 'public-read',
             'Content-Type': 'audio/mpeg'
         });
 
         const finalUrl = `https://athar-assets.fra1.digitaloceanspaces.com/${fileName}`;
+        console.log("4. تمت العملية بنجاح! الرابط:", finalUrl);
 
         res.status(200).json({ success: true, url: finalUrl, title: title });
     } catch (error) {
-        console.error("Error details:", error);
-        res.status(500).json({ error: "حدث خطأ أثناء معالجة الرابط" });
+        console.error("❌ حدث خطأ:", error.message);
+        // إرجاع الخطأ الحقيقي للمتصفح حتى نعرف المشكلة
+        res.status(500).json({ error: error.message || "حدث خطأ داخلي في السيرفر" });
     }
 });
 
-// ضروري جداً لـ Vercel
 module.exports = app;
